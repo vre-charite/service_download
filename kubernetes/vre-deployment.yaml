@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: download
+  namespace: vre
+  labels:
+    app: download
+    env: charite
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: download
+      env: charite
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 33%
+  template:
+    metadata:
+      labels:
+        app: download
+        env: charite
+    spec:
+      containers:
+        - name: download
+          image: 10.32.42.225:5000/download:<VERSION>
+          ports:
+            - containerPort: 5077
+          env:
+          - name: env
+            value: "charite"
+          readinessProbe:
+            tcpSocket:
+              port: 5077
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "16Gi"
+              cpu: "1"
+            limits:
+              memory: "16Gi"
+              cpu: "1"
+      nodeSelector:
+        namespace: vre
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: download
+  namespace: vre
+  labels:
+    app: download
+    env: charite
+spec:
+  ports:
+  - name: http
+    port: 5077
+    targetPort: 5077
+  selector:
+    app: download
+    env: charite
+  type: ClusterIP
