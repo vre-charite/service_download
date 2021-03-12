@@ -247,8 +247,10 @@ class APIDataDownload:
         __res = APIResponse()
         if not session_id:
             __res.code = EAPIResponseCode.bad_request
-            __res.result = "Invalid Session ID"
-        delete_by_session_id(session_id)
+            __res.result = {}
+            __res.error_msg = "Invalid Session ID: " + str(session_id)
+            return __res.json_response()
+        delete_by_session_id(session_id, action="data_download")
         __res.code = EAPIResponseCode.success
         __res.result = {
             "message": "Success"

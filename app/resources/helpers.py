@@ -94,18 +94,18 @@ def get_status(session_id, job_id, project_code, action, operator=None):
     return [json.loads(record.decode('utf-8')) for record in res_binary] if res_binary else []
 
 
-def delete_by_session_id(session_id: str):
+def delete_by_session_id(session_id: str, job_id: str = "*", action: str = "*"):
     '''
     delete status by session id
     '''
     srv_redis = SrvRedisSingleton()
-    prefix = "dataaction:" + session_id
+    prefix = "dataaction:" + session_id + ":" + job_id + ":" + action
     srv_redis.mdelete_by_prefix(prefix)
     return True
 
 
 def update_file_operation_logs(owner, operator, download_path, file_size, project_code,
-                               generate_id, operation_type="data_download"):
+                               generate_id, operation_type="data_download", extra=None):
     '''
     Endpoint
     /v1/file/actions/logs
@@ -125,4 +125,20 @@ def update_file_operation_logs(owner, operator, download_path, file_size, projec
         url,
         json=payload
     )
-    return internal_jsonrespon_handler(url, res_update_file_operation_logs)
+    # new audit log api
+    url_audit_log = ConfigClass.PROVENANCE_SERVICE + '/v1/audit-logs'
+    payload_audit_log = {
+        "action": operation_type,
+        "operator": operator,
+        "target": download_path,
+        "outcome": download_path,
+        "resource": "file",
+        "display_name": os.path.basename(download_path),
+        "project_code": project_code,
+        "extra": extra if extra else {}
+    }
+    res_audit_logs = requests.post(
+        url_audit_log,
+        json=payload_audit_log
+    )
+    return internal_jsonrespon_handler(url_audit_log, res_audit_logs)

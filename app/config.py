@@ -14,6 +14,7 @@ class ConfigClass(object):
     DATA_OPS_GR = "http://dataops-gr.greenroom:5063"
     # utility service
     UTILITY_SERVICE = "http://common.utility:5062"
+    PROVENANCE_SERVICE = "http://provenance.utility:5077"
 
     # disk mounts
     NFS_ROOT_PATH = "./"
