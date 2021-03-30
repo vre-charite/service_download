@@ -10,8 +10,9 @@ from ...commons.logger_services.logger_factory_service import SrvLoggerFactory
 from ...resources.download_token_manager import verify_download_token, generate_token
 from ...resources.error_handler import catch_internal, ECustomizedError, customized_error_template
 from ...resources.helpers import generate_zipped_file_path, zip_multi_files, \
-    set_status, get_status, update_file_operation_logs, delete_by_session_id
+    set_status, get_status, update_file_operation_logs, delete_by_session_id, get_files_recursive
 from ...config import ConfigClass
+import requests
 
 router = APIRouter()
 
@@ -41,9 +42,11 @@ class APIDataDownload:
         }]
         '''
         response = APIResponse()
+        request_payload = request_payload.copy()
         files = request_payload.files
         job_id = "data-download-" + str(int(time.time()))
         job_status = EDataDownloadStatus.INIT
+
         # check if number of files valid
         if len(files) < 1:
             response.code = EAPIResponseCode.bad_request
@@ -54,9 +57,34 @@ class APIDataDownload:
 
         # detect not found files
         not_found = []
+        files_to_zip = []
         for file in files:
-            if not os.path.exists(file["full_path"]):
-                not_found.append(file["full_path"])
+            query = {"global_entity_id": file["geid"]}
+            resp = requests.post(ConfigClass.NEO4J_SERVICE + "nodes/File/query", json=query)
+            if not resp.json():
+                # Handle Folder
+                self.__logger.info(f'Getting folder from geid: ' + str(file['geid']))
+                all_files = []
+                all_files = get_files_recursive(file["geid"], all_files=[])
+                self.__logger.info(f'Got files from folder: {all_files}')
+                for node in all_files:
+                    if not os.path.exists(node["full_path"]):
+                        not_found.append(node["full_path"])
+                    else:
+                        files_to_zip.append({
+                            "full_path": node["full_path"], 
+                            "geid": node["global_entity_id"]
+                        })
+            else:
+                # Handle File
+                file_node = resp.json()[0]
+                if not os.path.exists(file_node["full_path"]):
+                    not_found.append(file_node["full_path"])
+                else:
+                    files_to_zip.append({
+                        "full_path": file_node["full_path"], 
+                        "geid": file_node["global_entity_id"]
+                    })
         if len(not_found) > 0:
             response.code = EAPIResponseCode.not_found
             response.result = {
@@ -66,9 +94,24 @@ class APIDataDownload:
                 ECustomizedError.FILE_NOT_FOUND) % str(not_found)
             return response.json_response()
 
-        full_path = files[0]["full_path"]
+        if not files_to_zip:
+            response.code = EAPIResponseCode.bad_request
+            response.error_msg = "Folder is empty"
+            return response.json_response()
+
+        query = {"global_entity_id": file["geid"]}
+        resp = requests.post(ConfigClass.NEO4J_SERVICE + "nodes/File/query", json=query)
+        if resp.json():
+            file_node = resp.json()[0]
+            geid = file_node["global_entity_id"]
+        else:
+            query = {"global_entity_id": file["geid"]}
+            resp = requests.post(ConfigClass.NEO4J_SERVICE + "nodes/Folder/query", json=query)
+            geid = resp.json()[0]["global_entity_id"]
+        full_path = files_to_zip[0]["full_path"]
+
         # if multiple files, zip as one file
-        if len(files) > 1:
+        if len(files_to_zip) > 1:
             # asyncly zip files
             zipped_file_path = generate_zipped_file_path(
                 request_payload.project_code)
@@ -80,7 +123,8 @@ class APIDataDownload:
             job_status = EDataDownloadStatus.READY_FOR_DOWNLOADING
         # generate jwt hash code token
         hash_code = generate_token({
-            "full_path":  full_path,  # geid
+            "geid":  geid,
+            "full_path":  full_path,
             "issuer": "SERVICE DATA DOWNLOAD",
             "operator": request_payload.operator,
             "session_id": request_payload.session_id,
@@ -89,9 +133,10 @@ class APIDataDownload:
             "iat": int(time.time()),
             "exp": int(time.time()) + (ConfigClass.DOWNLOAD_TOKEN_EXPIRE_AT * 60)
         })
-        if len(files) > 1:
+        if len(files_to_zip) > 1:
+            self.__logger.info(f'Starting background job for: {geid} {files_to_zip}')
             background_tasks.add_task(
-                zip_worker, job_id, zipped_file_path, files, request_payload, hash_code)
+                zip_worker, job_id, zipped_file_path, files_to_zip.copy(), request_payload, hash_code, geid)
         # set status in session store
         job_recorded = set_status(
             request_payload.session_id,
@@ -101,6 +146,7 @@ class APIDataDownload:
             job_status.name,
             request_payload.project_code,
             request_payload.operator,
+            geid,
             payload={
                 "hash_code": hash_code
             }
@@ -162,8 +208,8 @@ class APIDataDownload:
         found = False
         if len(job_fatched) > 0:
             # find target source
-            job_fatched = [job for job in job_fatched if job['source']
-                           == res_verify_token['full_path']]
+            job_fatched = [job for job in job_fatched if job['geid']
+                           == res_verify_token['geid']]
             if len(job_fatched) > 0:
                 found = True
                 job_fatched = job_fatched[0]
@@ -199,22 +245,25 @@ class APIDataDownload:
         else:
             res_verify_token = res_verify_token[1]
 
+
+        full_path = res_verify_token["full_path"]
+
         # Use root to generate the path
-        if not os.path.exists(res_verify_token['full_path']):
+        if not os.path.exists(full_path):
             response.code = EAPIResponseCode.not_found
             response.result = None
             response.error_msg = customized_error_template(
-                ECustomizedError.FILE_NOT_FOUND) % res_verify_token['full_path']
+                ECustomizedError.FILE_NOT_FOUND) % full_path
             return response.json_response()
 
-        filename = os.path.basename(res_verify_token['full_path'])
+        filename = os.path.basename(full_path)
 
         # Add Download Log
         update_file_operation_logs(
             "VRE",
             res_verify_token['operator'],
-            res_verify_token['full_path'],
-            os.path.getsize(res_verify_token['full_path']),
+            full_path,
+            os.path.getsize(full_path),
             res_verify_token['project_code'],
             "undefined"
         )
@@ -223,11 +272,12 @@ class APIDataDownload:
         status_update_res = set_status(
             res_verify_token['session_id'],
             res_verify_token['job_id'],
-            res_verify_token['full_path'],
+            full_path,
             "data_download",
             EDataDownloadStatus.SUCCESS.name,
             res_verify_token['project_code'],
             res_verify_token['operator'],
+            res_verify_token['geid'],
             payload={
                 "hash_code": hash_code
             }
@@ -235,7 +285,7 @@ class APIDataDownload:
 
         self.__logger.debug(status_update_res)
 
-        return FileResponse(path=res_verify_token['full_path'], filename=filename)
+        return FileResponse(path=full_path, filename=filename)
 
     @router.delete("/download/status", tags=[_API_TAG],
                    summary="Delete the download session status.")
@@ -258,12 +308,12 @@ class APIDataDownload:
         return __res.json_response()
 
 
-def zip_worker(job_id, zipped_file_path, files, request_payload: PreDataDowanloadPOST, hash_code):
+def zip_worker(job_id, zipped_file_path, files, request_payload: PreDataDowanloadPOST, hash_code, geid):
     '''
     async zip worker
     '''
     try:
-        res = zip_multi_files(zipped_file_path, files)
+        res = zip_multi_files(zipped_file_path, files.copy(), request_payload.project_code)
         set_status(
             request_payload.session_id,
             job_id,
@@ -272,6 +322,7 @@ def zip_worker(job_id, zipped_file_path, files, request_payload: PreDataDowanloa
             EDataDownloadStatus.READY_FOR_DOWNLOADING.name,
             request_payload.project_code,
             request_payload.operator,
+            geid,
             payload={
                 "hash_code": hash_code
             }
@@ -285,6 +336,7 @@ def zip_worker(job_id, zipped_file_path, files, request_payload: PreDataDowanloa
             EDataDownloadStatus.CANCELLED.name,
             request_payload.project_code,
             request_payload.operator,
+            geid,
             payload={
                 "hash_code": hash_code,
                 "error_msg": str(e)

@@ -8,6 +8,27 @@ from ..config import ConfigClass
 from ..commons.data_providers.redis import SrvRedisSingleton
 
 
+def get_files_recursive(folder_geid, all_files=[]):
+    query = {
+        "start_label": "Folder",
+        "end_labels": ["File", "Folder"],
+        "query": {
+            "start_params": {
+                "global_entity_id": folder_geid,
+            },
+            "end_params": {
+            }
+        }
+    }
+    resp = requests.post(ConfigClass.NEO4J_HOST + "/v2/neo4j/relations/query", json=query)
+    for node in resp.json()["results"]:
+        if "File" in node["labels"]:
+            all_files.append(node)
+        else:
+            get_files_recursive(node["global_entity_id"], all_files=all_files)
+    return all_files
+
+
 def generate_zipped_file_path(project_code):
     '''
     generate zipped file path
@@ -20,7 +41,7 @@ def generate_zipped_file_path(project_code):
     return zipped_file_path
 
 
-def zip_multi_files(zipped_file_path, target_files):
+def zip_multi_files(zipped_file_path, target_files, project_code):
     '''
     zip multiple files
     '''
@@ -38,7 +59,12 @@ def zip_multi_files(zipped_file_path, target_files):
                 if not os.path.exists(full_path):
                     return False, 'File not found: %s' % full_path
                 with open(full_path, 'rb') as fp:
-                    zf.writestr(full_path, fp.read())
+                    path = full_path.replace(ConfigClass.ROOT_PATH + "/" + project_code, "")
+                    if path.startswith("/raw"):
+                        path = path[4:]
+                    elif path.startswith("/processed"):
+                        path = path [10:]
+                    zf.writestr(path, fp.read())
     except Exception as e:
         return False, str(e)
 
@@ -56,7 +82,7 @@ def namespace_to_path(my_disk_namespace: str):
 
 
 def set_status(session_id, job_id, source, action, target_status,
-               project_code, operator, payload=None, progress=0):
+               project_code, operator, geid, payload=None, progress=0):
     '''
     set session job status
     '''
@@ -66,6 +92,7 @@ def set_status(session_id, job_id, source, action, target_status,
     record = {
         "session_id": session_id,
         "job_id": job_id,
+        "geid": geid,
         "source": source,
         "action": action,
         "status": target_status,

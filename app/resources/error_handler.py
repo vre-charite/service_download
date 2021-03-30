@@ -3,6 +3,7 @@ from ..models.base_models import APIResponse, EAPIResponseCode
 from functools import wraps
 from requests import Response
 from ..commons.logger_services.logger_factory_service import SrvLoggerFactory
+import traceback
 
 _logger = SrvLoggerFactory('internal_error').get_logger()
 
@@ -23,7 +24,7 @@ def catch_internal(api_namespace):
                 err = api_namespace + " " + str(exce)
                 err_msg = customized_error_template(
                     ECustomizedError.INTERNAL) % err
-                _logger.error(err_msg)
+                _logger.error(traceback.format_exc())
                 respon.error_msg = err_msg
                 return respon.json_response()
         return inner
