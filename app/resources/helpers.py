@@ -61,9 +61,9 @@ def zip_multi_files(zipped_file_path, target_files, project_code):
                 with open(full_path, 'rb') as fp:
                     path = full_path.replace(ConfigClass.ROOT_PATH + "/" + project_code, "")
                     if path.startswith("/raw"):
-                        path = path[4:]
+                        path = path[5:]
                     elif path.startswith("/processed"):
-                        path = path [10:]
+                        path = path[11:]
                     zf.writestr(path, fp.read())
     except Exception as e:
         return False, str(e)
