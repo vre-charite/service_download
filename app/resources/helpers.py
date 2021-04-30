@@ -80,6 +80,14 @@ def namespace_to_path(my_disk_namespace: str):
         "vrecore": ConfigClass.VRE_ROOT_PATH
     }.get(my_disk_namespace, None)
 
+def get_frontend_zone(my_disk_namespace: str):
+    '''
+    disk namespace to path
+    '''
+    return {
+        "greenroom": "Green Room",
+        "vre": "Vre Core"
+    }.get(my_disk_namespace, None)
 
 def set_status(session_id, job_id, source, action, target_status,
                project_code, operator, geid, payload=None, progress=0):
@@ -89,6 +97,9 @@ def set_status(session_id, job_id, source, action, target_status,
     srv_redis = SrvRedisSingleton()
     my_key = "dataaction:{}:{}:{}:{}:{}:{}".format(
         session_id, job_id, action, project_code, operator, source)
+    payload = payload if payload else {}
+    payload["zone"] = ConfigClass.disk_namespace
+    payload["frontend_zone"] = get_frontend_zone(ConfigClass.disk_namespace)
     record = {
         "session_id": session_id,
         "job_id": job_id,
