@@ -20,7 +20,7 @@ def get_files_recursive(folder_geid, all_files=[]):
             }
         }
     }
-    resp = requests.post(ConfigClass.NEO4J_HOST + "/v2/neo4j/relations/query", json=query)
+    resp = requests.post(ConfigClass.NEO4J_SERVICE_V2 + "relations/query", json=query)
     for node in resp.json()["results"]:
         if "File" in node["labels"]:
             all_files.append(node)
@@ -86,7 +86,8 @@ def get_frontend_zone(my_disk_namespace: str):
     '''
     return {
         "greenroom": "Green Room",
-        "vre": "Vre Core"
+        "vre": "Vre Core",
+        "vrecore": "VRE Core"
     }.get(my_disk_namespace, None)
 
 def set_status(session_id, job_id, source, action, target_status,
@@ -148,7 +149,7 @@ def update_file_operation_logs(owner, operator, download_path, file_size, projec
     Endpoint
     /v1/file/actions/logs
     '''
-    url = ConfigClass.DATA_OPS_GR + '/v1/file/actions/logs'
+    url = ConfigClass.DATA_OPS_GR + 'file/actions/logs'
     payload = {
         "operation_type": operation_type,
         "owner": owner,
@@ -164,7 +165,7 @@ def update_file_operation_logs(owner, operator, download_path, file_size, projec
         json=payload
     )
     # new audit log api
-    url_audit_log = ConfigClass.PROVENANCE_SERVICE + '/v1/audit-logs'
+    url_audit_log = ConfigClass.PROVENANCE_SERVICE + 'audit-logs'
     payload_audit_log = {
         "action": operation_type,
         "operator": operator,

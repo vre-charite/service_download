@@ -10,3 +10,5 @@ python-multipart==0.0.5
 python-json-logger==0.1.11
 aiofiles==0.6.0
 redis==3.5.3
+minio==7.0.3
+xmltodict==0.12.0

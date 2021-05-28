@@ -83,4 +83,4 @@ class EDataDownloadStatus(Enum):
     CANCELLED = 1
     ZIPPING = 3
     READY_FOR_DOWNLOADING = 5
-    SUCCESS = 7
+    SUCCEED = 7

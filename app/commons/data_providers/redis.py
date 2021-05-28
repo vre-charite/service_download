@@ -31,7 +31,7 @@ class SrvRedisSingleton():
 
     def set_by_key(self, key: str, content: str):
         res = self.__instance.set(key, content)
-        _logger.debug(key + ":  " + content)
+        _logger.debug('redis set by key: ' + key + ":  " + content)
 
     def mget_by_prefix(self, prefix: str):
         _logger.debug(prefix)
