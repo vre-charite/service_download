@@ -1,5 +1,6 @@
 import os
 import time
+
 from fastapi import APIRouter, BackgroundTasks, Header
 from fastapi_utils import cbv
 from fastapi.responses import FileResponse
@@ -69,11 +70,21 @@ class APIDataDownload:
                 self.__logger.info(
                     f'Getting folder from geid: ' + str(file['geid']))
                 all_files = []
+                self.__logger.info(f'Got files from folder: {all_files}')
                 all_files = get_files_recursive(file["geid"], all_files=[])
                 if len(all_files) > 0:
                     is_containe_folder = True
-                self.__logger.info(f'Got files from folder: {all_files}')
+                self.__logger.info(
+                    f'Got files from folder after filter: {all_files}')
+
                 for node in all_files:
+                    self.__logger.info(
+                        'file node archived: ' + str(node["archived"]))
+                    if node["archived"]:
+                        self.__logger.info(
+                            'file node archived skipped' + str(node))
+                        continue
+
                     if not os.path.exists(node["full_path"]):
                         not_found.append(node["full_path"])
                     else:

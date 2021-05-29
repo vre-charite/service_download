@@ -17,10 +17,12 @@ def get_files_recursive(folder_geid, all_files=[]):
                 "global_entity_id": folder_geid,
             },
             "end_params": {
+                "archived": False,
             }
         }
     }
-    resp = requests.post(ConfigClass.NEO4J_SERVICE_V2 + "relations/query", json=query)
+    resp = requests.post(ConfigClass.NEO4J_SERVICE_V2 +
+                         "relations/query", json=query)
     for node in resp.json()["results"]:
         if "File" in node["labels"]:
             all_files.append(node)
@@ -59,7 +61,8 @@ def zip_multi_files(zipped_file_path, target_files, project_code):
                 if not os.path.exists(full_path):
                     return False, 'File not found: %s' % full_path
                 with open(full_path, 'rb') as fp:
-                    path = full_path.replace(ConfigClass.ROOT_PATH + "/" + project_code, "")
+                    path = full_path.replace(
+                        ConfigClass.ROOT_PATH + "/" + project_code, "")
                     if path.startswith("/raw"):
                         path = path[5:]
                     elif path.startswith("/processed"):
@@ -80,6 +83,7 @@ def namespace_to_path(my_disk_namespace: str):
         "vrecore": ConfigClass.VRE_ROOT_PATH
     }.get(my_disk_namespace, None)
 
+
 def get_frontend_zone(my_disk_namespace: str):
     '''
     disk namespace to path
@@ -89,6 +93,7 @@ def get_frontend_zone(my_disk_namespace: str):
         "vre": "Vre Core",
         "vrecore": "VRE Core"
     }.get(my_disk_namespace, None)
+
 
 def set_status(session_id, job_id, source, action, target_status,
                project_code, operator, geid, payload=None, progress=0):
