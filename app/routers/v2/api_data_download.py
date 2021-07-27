@@ -162,7 +162,7 @@ class APIDataDownload:
                         "location": node["location"],
                         "geid": node["global_entity_id"],
                         "project_code": node.get("project_code", ""),
-                        "operator": node["operator"],
+                        "operator": request_payload.operator,
                         "parent_folder": file["geid"],
                         "dataset_code": node.get("dataset_code", ""),
                     })
@@ -175,7 +175,7 @@ class APIDataDownload:
                     "location": file_node["location"],
                     "geid": file_node["global_entity_id"],
                     "project_code": file_node.get("project_code", ""),
-                    "operator": file_node["operator"],
+                    "operator": request_payload.operator,
                     "parent_folder": None,
                     "dataset_code": file_node.get("dataset_code", ""),
                 })
