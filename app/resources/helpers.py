@@ -8,6 +8,15 @@ from ..config import ConfigClass
 from ..commons.data_providers.redis import SrvRedisSingleton
 
 
+def get_geid():
+    url = ConfigClass.COMMON_SERVICE + "utility/id"
+    response = requests.get(url)
+    if response.status_code == 200:
+        return response.json()['result']
+    else:
+        raise Exception('get_geid {}: {}'.format(response.status_code, url))
+
+
 def get_files_recursive(folder_geid, all_files=[]):
     query = {
         "start_label": "Folder",

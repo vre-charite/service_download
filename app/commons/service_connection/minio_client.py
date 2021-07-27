@@ -50,29 +50,19 @@ class Minio_Client():
 
     def __init__(self):
         # retrieve credential provide with tokens
-        c = self.get_provider()
-
-        self.client = Minio(
-            ConfigClass.MINIO_ENDPOINT, 
-            c.access_key, 
-            c.secret_key,
-            session_token=c.session_token,
-            credentials=c,
-            secure=ConfigClass.MINIO_HTTPS)
-
-        # credential_detail = get_temp_credentials()
-        # minio_user_access_key = credential_detail["AccessKeyId"]
-        # minio_user_secrete_key = credential_detail["SecretAccessKey"]
-        # minio_user_token = credential_detail["SessionToken"]
-
+        # c = self.get_provider()
 
         # self.client = Minio(
         #     ConfigClass.MINIO_ENDPOINT, 
-        #     minio_user_access_key, 
-        #     minio_user_secrete_key,
-        #     session_token=minio_user_token,
-        #     secure=ConfigClass.MINIO_HTTPS
-        # )
+        #     credentials=c,
+        #     secure=ConfigClass.MINIO_HTTPS)
+
+        # Temperary use the credential
+        self.client = Minio(
+            ConfigClass.MINIO_ENDPOINT, 
+            access_key=ConfigClass.MINIO_ACCESS_KEY,
+            secret_key=ConfigClass.MINIO_SECRET_KEY,
+            secure=ConfigClass.MINIO_HTTPS)
 
 
     def _get_jwt(self):
@@ -88,14 +78,13 @@ class Minio_Client():
         headers = {
             "Content-Type": "application/x-www-form-urlencoded"
         }
-
+        
         result = requests.post(ConfigClass.KEYCLOAK_URL+"/vre/auth/realms/vre/protocol/openid-connect/token", data=payload, headers=headers)
         keycloak_access_token = result.json().get("access_token")
         return result.json()
 
     def get_provider(self):
         minio_http = ("https://" if ConfigClass.MINIO_HTTPS else "http://") + ConfigClass.MINIO_ENDPOINT
-        print(minio_http)
         provider = ClientGrantsProvider(
             self._get_jwt,
             minio_http,

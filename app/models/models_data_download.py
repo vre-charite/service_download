@@ -5,15 +5,36 @@ from .base_models import APIResponse
 ### PreDataDowanload ###
 
 
-class PreDataDowanloadPOST(BaseModel):
+class PreDataDownloadPOST(BaseModel):
     '''
     Pre download payload model
     '''
     files: list
-    project_code: str
+    operator: str
+    session_id: str
+    project_code: str = ""
+    dataset_geid: str = ""
+    dataset_description: bool = False
+
+class DatasetPrePOST(BaseModel):
+    '''
+    Pre download dataset payload model
+    '''
+    dataset_geid: str
     operator: str
     session_id: str
 
+class PreSignedDownload(BaseModel):
+    '''
+    presigned download url payload for minio
+    '''
+    object_path: str
+
+class PreSignedBatchDownload(BaseModel):
+    '''
+    presigned download url payload for minio but accept a list of 
+    '''
+    object_path: list
 
 class PreDataDowanloadResponse(APIResponse):
     '''

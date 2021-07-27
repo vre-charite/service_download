@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, BackgroundTasks, Header
 from fastapi_utils import cbv
 from fastapi.responses import FileResponse
-from ...models.models_data_download import EDataDownloadStatus, PreDataDowanloadPOST, \
+from ...models.models_data_download import EDataDownloadStatus, PreDataDownloadPOST, \
     PreDataDowanloadResponse, GetDataDownloadStatusRespon, DownloadStatusListRespon
 from ...models.base_models import APIResponse, EAPIResponseCode
 from ...commons.logger_services.logger_factory_service import SrvLoggerFactory
@@ -34,8 +34,9 @@ class APIDataDownload:
     @router.post("/download/pre/", tags=[_API_TAG], response_model=PreDataDowanloadResponse,
                  summary="Pre download process, zip as a package if more than 1 file")
     @catch_internal(_API_NAMESPACE)
-    async def data_pre_download(self, request_payload: PreDataDowanloadPOST, background_tasks: BackgroundTasks):
+    async def data_pre_download(self, request_payload: PreDataDownloadPOST, background_tasks: BackgroundTasks):
         '''
+        so for now v1 is deprecated
         "files":
         [{
             "full_path": "",
@@ -44,6 +45,11 @@ class APIDataDownload:
         }]
         '''
         response = APIResponse()
+        response.result = {"result":"API is deprecated"}
+        response.code = EAPIResponseCode.bad_request
+        return response
+
+
         request_payload = request_payload.copy()
         files = request_payload.files
         job_id = "data-download-" + str(int(time.time()))
@@ -262,6 +268,7 @@ class APIDataDownload:
             'job_fatched list: ' + str(job_fatched))
         self.__logger.info(
             'res_verify_token: ' + str(res_verify_token))
+
         if len(job_fatched) > 0:
             # find target source
             job_fatched = [job for job in job_fatched if job['source']
@@ -271,11 +278,13 @@ class APIDataDownload:
                 job_fatched = job_fatched[0]
         self.__logger.info(
             'job_fatched: ' + str(job_fatched))
+            
         if found:
             response.code = EAPIResponseCode.success
             response.result = job_fatched
             return response.json_response()
         else:
+            self.__logger.error(f'Status not found {res_verify_token} in namespace {ConfigClass.disk_namespace}')
             response.code = EAPIResponseCode.not_found
             response.result = job_fatched
             response.error_msg = customized_error_template(
@@ -303,16 +312,21 @@ class APIDataDownload:
         else:
             res_verify_token = res_verify_token[1]
 
+        # get the temperary file path we saved in token
+        # and use it to fetch the actual file
         full_path = res_verify_token["full_path"]
 
         # Use root to generate the path
         if not os.path.exists(full_path):
+            self.__logger.error(f'File not found {full_path} in namespace {ConfigClass.disk_namespace}')
             response.code = EAPIResponseCode.not_found
             response.result = None
             response.error_msg = customized_error_template(
                 ECustomizedError.FILE_NOT_FOUND) % full_path
             return response.json_response()
 
+        # this operation is needed since the file will be 
+        # download to nfs from minio then transfert to user
         filename = os.path.basename(full_path)
 
         # Add Download Log
@@ -369,7 +383,7 @@ class APIDataDownload:
         return __res.json_response()
 
 
-def zip_worker(job_id, zipped_file_path, files, request_payload: PreDataDowanloadPOST, hash_code, geid, zip_files_geid):
+def zip_worker(job_id, zipped_file_path, files, request_payload: PreDataDownloadPOST, hash_code, geid, zip_files_geid):
     '''
     async zip worker
     '''
