@@ -4,7 +4,7 @@ from requests.models import HTTPError
 
 srv_namespace = "service_download"
 CONFIG_CENTER = "http://10.3.7.222:5062" \
-    if os.environ.get('env') == "test" \
+    if os.environ.get('env', "test") == "test" \
     else "http://common.utility:5062"
 
 def vault_factory() -> dict:
@@ -33,6 +33,9 @@ class ConfigClass(object):
     PROVENANCE_SERVICE = vault['PROVENANCE_SERVICE'] + "/v1/"
     QUEUE_SERVICE = vault['QUEUE_SERVICE'] + "/v1/"
     COMMON_SERVICE = vault['UTILITY_SERVICE'] + "/v1/"
+    DATA_OPS_UTIL = vault['DATA_OPS_UTIL'] + "/v1/"
+    DATASET_SERVICE = vault['DATASET_SERVICE'] + "/v1/"
+
     # minio
     MINIO_OPENID_CLIENT = vault['MINIO_OPENID_CLIENT']
     MINIO_ENDPOINT = vault['MINIO_ENDPOINT']
@@ -42,10 +45,11 @@ class ConfigClass(object):
     MINIO_ACCESS_KEY = "indoc-minio"
     MINIO_SECRET_KEY = "Trillian42!"
     MINIO_TMP_PATH = ROOT_PATH + '/tmp/'
+    KEYCLOAK_VRE_SECRET = vault['KEYCLOAK_VRE_SECRET']
     
     # download secret
     DOWNLOAD_KEY = "indoc101"
-    DOWNLOAD_TOKEN_EXPIRE_AT = 5
+    DOWNLOAD_TOKEN_EXPIRE_AT = 86400
     # Redis Service
     REDIS_HOST = vault['REDIS_HOST']
     REDIS_PORT = int(vault['REDIS_PORT'])

@@ -1,7 +1,9 @@
 import os
 import time
 from fastapi import APIRouter, BackgroundTasks, Header
+from fastapi.responses import StreamingResponse
 from fastapi_utils import cbv
+from typing import Optional
 import requests
 import datetime
 import uuid
@@ -14,10 +16,10 @@ from ...models.base_models import APIResponse, EAPIResponseCode
 from ...resources.error_handler import catch_internal, ECustomizedError, customized_error_template
 from ...resources.helpers import generate_zipped_file_path, zip_multi_files, \
     set_status, get_status, update_file_operation_logs, delete_by_session_id, get_files_recursive, get_geid
-from ...resources.download_token_manager import verify_download_token, generate_token
+from ...resources.download_token_manager import verify_download_token, generate_token, verify_dataset_version_token
 from ...commons.logger_services.logger_factory_service import SrvLoggerFactory
 from ...config import ConfigClass
-from ...commons.service_connection.minio_client import Minio_Client
+from ...commons.service_connection.minio_client import Minio_Client, Minio_Client_
 from ...models.models_data_download import PreSignedDownload, PreSignedBatchDownload, \
         EDataDownloadStatus, PreDataDownloadPOST, \
         PreDataDowanloadResponse, GetDataDownloadStatusRespon, DownloadStatusListRespon, DatasetPrePOST
@@ -66,50 +68,8 @@ class APIDataDownload:
             raise Exception(error_msg)
         return res
 
+    async def handle_pre_download(self, request_payload, background_tasks, auth_token, allow_empty=False):
 
-    # @router.post("/download/{bucket}/object", tags=[_API_TAG],
-    #              summary="Pre download process, zip as a package if more than 1 file")
-    # @catch_internal(_API_NAMESPACE)
-    # async def data_pre_download_presigned(self, bucket:str, request_payload: PreSignedDownload):
-
-    #     try:
-    #         mc = Minio_Client()
-    #         # temperary for greenroom
-    #         bucket = "gr-" + bucket
-    #         presigned_download_url = mc.client.presigned_get_object(bucket, \
-    #             request_payload.object_path, expires=datetime.timedelta(seconds=60))
-    #     except Exception as e:
-    #         self.__logger.error(e)
-
-    #     if ConfigClass.env != 'dev':
-    #         presigned_download_url = presigned_download_url.split('//', 2)[-1]
-    #         presigned_download_url = 'https://' + presigned_download_url
-
-    #     return presigned_download_url
-
-
-    # @router.post("/download/pre", tags=[_API_TAG],
-    #              summary="Allow user to download a zip with multiple files")
-    # @catch_internal(_API_NAMESPACE)
-    # async def data_pre_download_presigned(self, bucket:str, request_payload: PreSignedDownload):
-
-    #     try:
-    #         mc = Minio_Client()
-    #         # temperary for greenroom
-    #         bucket = "gr-" + bucket
-    #         presigned_download_url = mc.client.presigned_get_object(bucket, \
-    #             request_payload.object_path, expires=datetime.timedelta(seconds=60))
-    #     except Exception as e:
-    #         self.__logger.error(e)
-
-    #     if ConfigClass.env != 'dev':
-    #         presigned_download_url = presigned_download_url.split('//', 2)[-1]
-    #         presigned_download_url = 'https://' + presigned_download_url
-
-    #     return presigned_download_url
-
-
-    async def handle_pre_download(self, request_payload, background_tasks, allow_empty=False):
         response = APIResponse()
         files = request_payload.files
         job_id = "data-download-" + str(int(time.time()))
@@ -136,7 +96,7 @@ class APIDataDownload:
             query = {"global_entity_id": file["geid"]}
             resp = requests.post(ConfigClass.NEO4J_SERVICE +
                                  "nodes/File/query", json=query)
-            # Handle Folder  
+            # Handle Folder
             if not resp.json():
                 self.__logger.info(
                     f'Getting folder from geid: ' + str(file['geid']))
@@ -166,7 +126,7 @@ class APIDataDownload:
                         "parent_folder": file["geid"],
                         "dataset_code": node.get("dataset_code", ""),
                     })
-            # Handle File: 
+            # Handle File:
             else:
                 # since we use minio
                 # then minio will help us to handle if file exist
@@ -236,12 +196,13 @@ class APIDataDownload:
         payload={
             "hash_code": hash_code,
         }
-        
+
+        self.__logger.info(auth_token)
         self.__logger.info(
             f'Starting background job for: {geid} {files_to_zip}')
         background_tasks.add_task(zip_worker, job_id, location, \
             files_to_zip.copy(), request_payload, hash_code, \
-            geid, tmp_folder, is_containe_folder)
+            geid, tmp_folder, is_containe_folder, auth_token)
 
         if request_payload.dataset_geid and not request_payload.dataset_description:
             # Dataset file download
@@ -274,7 +235,8 @@ class APIDataDownload:
     @router.post("/download/pre/", tags=[_API_TAG], response_model=PreDataDowanloadResponse,
                  summary="Pre download process, zip as a package if more than 1 file")
     @catch_internal(_API_NAMESPACE)
-    async def data_pre_download(self, request_payload: PreDataDownloadPOST, background_tasks: BackgroundTasks):
+    async def data_pre_download(self, request_payload: PreDataDownloadPOST, background_tasks: BackgroundTasks,\
+        Authorization: Optional[str] = Header(None), refresh_token: Optional[str] = Header(None)):
         '''
         "files":
         [{
@@ -284,14 +246,28 @@ class APIDataDownload:
         }]
         '''
         response = APIResponse()
+        # pass the access and refresh token to minio operation
+        token = {
+            "at": Authorization,
+            "rt": refresh_token
+        }
+
         request_payload = request_payload.copy()
-        response = await self.handle_pre_download(request_payload, background_tasks)
+        response = await self.handle_pre_download(request_payload, background_tasks, token)
         return response
 
 
     @router.post("/dataset/download/pre", tags=[_API_TAG], summary="Download all files in a dataset")
     @catch_internal(_API_NAMESPACE)
-    async def dataset_pre_download(self, data: DatasetPrePOST, background_tasks: BackgroundTasks):
+    async def dataset_pre_download(self, data: DatasetPrePOST, background_tasks: BackgroundTasks,\
+        Authorization: Optional[str] = Header(None), refresh_token: Optional[str] = Header(None)):
+
+        # pass the access and refresh token to minio operation
+        token = {
+            "at": Authorization,
+            "rt": refresh_token
+        }
+        
         self.__logger.info('Called dataset download')
         api_response = APIResponse()
         query = {
@@ -322,7 +298,7 @@ class APIDataDownload:
             })
         self.__logger.info(f'Calling handle_per_download with payload: {download_payload}')
         request_payload = PreDataDownloadPOST(**download_payload)
-        response = await self.handle_pre_download(request_payload, background_tasks, allow_empty=True)
+        response = await self.handle_pre_download(request_payload, background_tasks, token, allow_empty=True)
         self.update_activity_log(
             data.dataset_geid,
             data.dataset_geid,
@@ -331,43 +307,73 @@ class APIDataDownload:
         )
         return response
 
+    @router.get("/dataset/download/{hash_code}", tags=[_API_TAG], summary="Download dataset version")
+    async def download_dataset_version(self, hash_code: str,\
+        Authorization: Optional[str] = Header(None), refresh_token: Optional[str] = Header(None)):
 
-    # temperary add a presigned upload url here
-    @router.get("/upload/{bucket}/object/{object_path}", tags=[_API_TAG],
-                 summary="temperary api here, generate presigned upload url")
-    @catch_internal(_API_NAMESPACE)
-    async def data_pre_upload(self, bucket:str, object_path:str):
+        """
+            Download a specific version of a dataset given a hash_code
+            Please note here, this hash code api is different with other async download
+            this one will use the minio client to fetch the file and directly
+            send to frontend. and in /dataset/download/pre it will ONLY take the hashcode
 
-        self.__logger.info('data_pre_upload')
+            other api like project files will use the /pre to download from minio and zip
+        """
+        api_response = APIResponse()
+        valid, result = verify_dataset_version_token(hash_code)
+        if not valid:
+            api_response.code = EAPIResponseCode.unauthorized
+            api_response.error_msg = result[1]
+            return api_response.json_response()
 
-        mc = Minio_Client()
-        presigned_upload_url = mc.client.presigned_put_object(bucket, object_path, expires=datetime.timedelta(seconds=60))
+        minio_path = result["location"].split("//")[-1]
+        _, bucket, file_path = tuple(minio_path.split("/", 2))
+        filename = file_path.split("/")[-1]
+        
+        self.__logger.info(str(Authorization))
+        self.__logger.info(str(refresh_token))
 
-        if ConfigClass.env != 'dev':
-            presigned_upload_url = presigned_upload_url.split('//', 2)[-1]
-            presigned_upload_url = 'https://' + presigned_upload_url
+        try:
+            # mc = Minio_Client_(Authorization, refresh_token)
+            mc = Minio_Client()
+            result = mc.client.stat_object(bucket, file_path)
+            headers = {
+                "Content-Length": str(result.size),
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+            response = mc.client.get_object(bucket, file_path)
+        except Exception as e:
+            error_msg = f"Error getting file from minio: {str(e)}"
+            self.__logger.error(error_msg)
+            api_response.error_msg = error_msg
+            return api_response.json_response()
+        return StreamingResponse(response.stream(), headers=headers)
 
-        return presigned_upload_url
 
-    
 
 def zip_worker(job_id, location, files, request_payload: PreDataDownloadPOST, \
-    hash_code, geid, tmp_folder, is_containe_folder):
+    hash_code, geid, tmp_folder, is_containe_folder, auth_token):
     '''
     async zip worker
     '''
-    try:      
+    locked = []
+    try:
         _logger = SrvLoggerFactory('api_data_download').get_logger()
-        mc = Minio_Client()
+        mc = Minio_Client_(auth_token["at"], auth_token["rt"])
+        # mc = Minio_Client()
 
         # download all file to tmp folder
         for obj in files:
             # minio location is minio://http://<end_point>/bucket/user/object_path
             minio_path = obj['location'].split("//")[-1]
             _, bucket, obj_path = tuple(minio_path.split("/", 2))
+            lock_key = os.path.join(bucket, obj_path)
+            lock_resource(lock_key)
+            locked.append(lock_key)
             try:
                 mc.client.fget_object(bucket, obj_path, tmp_folder+"/"+obj_path)
             except minio.error.S3Error as e:
+                release_locks(locked)
                 if e.code == "NoSuchKey":
                     _logger.info("File not found, skipping: " + str(e))
                     print("file not found, skipping")
@@ -376,27 +382,7 @@ def zip_worker(job_id, location, files, request_payload: PreDataDownloadPOST, \
                     raise e
 
         if request_payload.dataset_description:
-            if not os.path.isdir(tmp_folder):
-                os.mkdir(tmp_folder)
-                os.mkdir(tmp_folder + "/data")
-            payload = {
-                "global_entity_id": request_payload.dataset_geid
-            }
-            response = requests.post(ConfigClass.NEO4J_SERVICE + "nodes/Dataset/query", json=payload)
-            dataset_node = response.json()[0]
-            description_json = {
-                "authors": dataset_node["authors"],
-                "collection_method": dataset_node["collection_method"],
-                "creator": dataset_node["creator"],
-                "description": dataset_node["description"],
-                "license": dataset_node["license"],
-                "modality": dataset_node["modality"],
-                "name": dataset_node["name"],
-                "tags": dataset_node["tags"],
-                "type": dataset_node["type"],
-            }
-            with open(tmp_folder + "/" + dataset_node["code"] + "_description.json", 'w') as w:
-                w.write(json.dumps(description_json, indent=4))
+            add_schemas(request_payload.dataset_geid, tmp_folder)
 
         # we better to display the file name if there is a single file
         # or if the payload is a folder
@@ -426,7 +412,10 @@ def zip_worker(job_id, location, files, request_payload: PreDataDownloadPOST, \
                 "files": files
             }
         )
+
+        release_locks(locked)
     except Exception as e:
+        release_locks(locked)
         print(e)
         status_id = request_payload.project_code
         if not status_id:
@@ -445,3 +434,68 @@ def zip_worker(job_id, location, files, request_payload: PreDataDownloadPOST, \
                 "error_msg": str(e)
             }
         )
+
+def add_schemas(dataset_geid, tmp_folder):
+    """
+        Saves schema json files to folder that will zipped
+    """
+    if not os.path.isdir(tmp_folder):
+        os.mkdir(tmp_folder)
+        os.mkdir(tmp_folder + "/data")
+
+    payload = {
+        "dataset_geid": dataset_geid,
+        "standard": "vre",
+        "is_draft": False,
+    }
+    response = requests.post(ConfigClass.DATASET_SERVICE + "schema/list", json=payload)
+    for schema in response.json()["result"]:
+        with open(tmp_folder + "/vre_" + schema["name"], 'w') as w:
+            w.write(json.dumps(schema["content"], indent=4, ensure_ascii=False))
+
+    payload = {
+        "dataset_geid": dataset_geid,
+        "standard": "open_minds",
+        "is_draft": False,
+    }
+    response = requests.post(ConfigClass.DATASET_SERVICE + "schema/list", json=payload)
+    for schema in response.json()["result"]:
+        with open(tmp_folder + "/openMINDS_" + schema["name"], 'w') as w:
+            w.write(json.dumps(schema["content"], indent=4, ensure_ascii=False))
+
+def release_locks(locked: list):
+    unlocked = [unlock_resource(k) for k in locked]
+    return unlocked
+
+def lock_resource(resource_key):
+    '''
+    lock resource
+    '''
+    url = ConfigClass.DATA_OPS_UTIL + 'resource/lock'
+    post_json = {
+        "resource_key": resource_key
+    }
+    response = requests.post(url, json=post_json)
+    return response
+
+def check_lock(resource_key):
+    '''
+    get resource lock
+    '''
+    url = ConfigClass.DATA_OPS_UTIL + 'resource/lock'
+    params = {
+        "resource_key": resource_key
+    }
+    response = requests.get(url, params=params)
+    return response
+
+def unlock_resource(resource_key):
+    '''
+    unlock resource
+    '''
+    url = ConfigClass.DATA_OPS_UTIL + 'resource/lock'
+    post_json = {
+        "resource_key": resource_key
+    }
+    response = requests.delete(url, json=post_json)
+    return response

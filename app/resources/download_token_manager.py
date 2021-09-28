@@ -3,6 +3,18 @@ from .error_handler import customized_error_template, ECustomizedError
 from ..config import ConfigClass
 
 
+def verify_dataset_version_token(token):
+    '''
+    verify download token with the download key
+    '''
+    try:
+        res = jwt.decode(token, ConfigClass.DOWNLOAD_KEY, algorithms=['HS256'])
+        return True, res
+    except jwt.ExpiredSignatureError:
+        return False, "expired"
+    except Exception as e:
+        return False, "invalid"
+
 def verify_download_token(token):
     '''
     verify download token with the download key
