@@ -39,50 +39,6 @@ def get_files_recursive(folder_geid, all_files=[]):
             get_files_recursive(node["global_entity_id"], all_files=all_files)
     return all_files
 
-
-def generate_zipped_file_path(project_code):
-    '''
-    generate zipped file path
-    '''
-    target_path = os.path.join(
-        ConfigClass.ROOT_PATH, project_code, 'workdir')  # data/vre-storage/project_code/workdir
-    zip_filename = project_code + '_zipped' + \
-        '_' + str(int(time.time())) + '.zip'
-    zipped_file_path = os.path.join(target_path, zip_filename)
-    return zipped_file_path
-
-
-def zip_multi_files(zipped_file_path, target_files, project_code):
-    '''
-    zip multiple files
-    '''
-    target_path = os.path.dirname(zipped_file_path)
-    if not os.path.isdir(target_path):
-        try:
-            os.makedirs(target_path)
-        except FileExistsError as file_e:
-            # ignore existed folder
-            pass
-    try:
-        with zipfile.ZipFile(zipped_file_path, 'w', zipfile.ZIP_STORED) as zf:
-            for f in target_files:
-                full_path = f["full_path"]
-                if not os.path.exists(full_path):
-                    return False, 'File not found: %s' % full_path
-                with open(full_path, 'rb') as fp:
-                    path = full_path.replace(
-                        ConfigClass.ROOT_PATH + "/" + project_code, "")
-                    if path.startswith("/raw"):
-                        path = path[5:]
-                    elif path.startswith("/processed"):
-                        path = path[11:]
-                    zf.writestr(path, fp.read())
-    except Exception as e:
-        return False, str(e)
-
-    return True, zipped_file_path
-
-
 def namespace_to_path(my_disk_namespace: str):
     '''
     disk namespace to path

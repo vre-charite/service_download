@@ -8,6 +8,16 @@ import traceback
 _logger = SrvLoggerFactory('internal_error').get_logger()
 
 
+class APIException(Exception):
+    def __init__(self, status_code: int, error_msg: str):
+        self.status_code = status_code
+        self.content = {
+            "code": self.status_code,
+            "error_msg": error_msg,
+            "result": "",
+        }
+
+
 def catch_internal(api_namespace):
     '''
     decorator to catch internal server error.
@@ -18,6 +28,8 @@ def catch_internal(api_namespace):
             try:
                 return await func(*args, **kwargs)
             except Exception as exce:
+                if type(exce) == APIException:
+                    raise exce
                 respon = APIResponse()
                 respon.code = EAPIResponseCode.internal_error
                 respon.result = None

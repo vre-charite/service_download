@@ -1,7 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from .config import ConfigClass
 from .api_registry import api_registry
+from app.resources.error_handler import APIException
 
 
 def create_app():
@@ -22,6 +24,14 @@ def create_app():
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(APIException)
+    async def http_exception_handler(request: Request, exc: APIException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=exc.content,
+        )
+
 
     # API registry
     # v1

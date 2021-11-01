@@ -1,17 +1,16 @@
 import os
 import time
 
-from fastapi import APIRouter, BackgroundTasks, Header
+from fastapi import APIRouter, Header
 from fastapi_utils import cbv
 from fastapi.responses import FileResponse
 from ...models.models_data_download import EDataDownloadStatus, PreDataDownloadPOST, \
     PreDataDowanloadResponse, GetDataDownloadStatusRespon, DownloadStatusListRespon
 from ...models.base_models import APIResponse, EAPIResponseCode
 from ...commons.logger_services.logger_factory_service import SrvLoggerFactory
-from ...resources.download_token_manager import verify_download_token, generate_token
+from ...resources.download_token_manager import verify_download_token
 from ...resources.error_handler import catch_internal, ECustomizedError, customized_error_template
-from ...resources.helpers import generate_zipped_file_path, zip_multi_files, \
-    set_status, get_status, update_file_operation_logs, delete_by_session_id, get_files_recursive
+from ...resources.helpers import set_status, get_status, update_file_operation_logs, delete_by_session_id, get_files_recursive
 from ...config import ConfigClass
 import requests
 import json
@@ -30,188 +29,6 @@ class APIDataDownload:
 
     def __init__(self):
         self.__logger = SrvLoggerFactory('api_data_download').get_logger()
-
-    @router.post("/download/pre/", tags=[_API_TAG], response_model=PreDataDowanloadResponse,
-                 summary="Pre download process, zip as a package if more than 1 file")
-    @catch_internal(_API_NAMESPACE)
-    async def data_pre_download(self, request_payload: PreDataDownloadPOST, background_tasks: BackgroundTasks):
-        '''
-        so for now v1 is deprecated
-        "files":
-        [{
-            "full_path": "",
-            "project_code": "",
-            "geid": ""
-        }]
-        '''
-        response = APIResponse()
-        response.result = {"result":"API is deprecated"}
-        response.code = EAPIResponseCode.bad_request
-        return response
-
-
-        request_payload = request_payload.copy()
-        files = request_payload.files
-        job_id = "data-download-" + str(int(time.time()))
-        job_status = EDataDownloadStatus.INIT
-
-        # check if number of files valid
-        if len(files) < 1:
-            response.code = EAPIResponseCode.bad_request
-            response.result = None
-            response.error_msg = customized_error_template(
-                ECustomizedError.INVALID_FILE_AMOUNT)
-            return response.json_response()
-
-        # detect not found files
-        not_found = []
-        files_to_zip = []
-        is_containe_folder = False
-        for file in files:
-            query = {"global_entity_id": file["geid"]}
-            resp = requests.post(ConfigClass.NEO4J_SERVICE +
-                                 "nodes/File/query", json=query)
-            if not resp.json():
-                # Handle Folder
-                self.__logger.info(
-                    f'Getting folder from geid: ' + str(file['geid']))
-                all_files = []
-                self.__logger.info(f'Got files from folder: {all_files}')
-                all_files = get_files_recursive(file["geid"], all_files=[])
-                if len(all_files) > 0:
-                    is_containe_folder = True
-                self.__logger.info(
-                    f'Got files from folder after filter: {all_files}')
-
-                for node in all_files:
-                    self.__logger.info(
-                        'file node archived: ' + str(node["archived"]))
-                    if node["archived"]:
-                        self.__logger.info(
-                            'file node archived skipped' + str(node))
-                        continue
-
-                    if not os.path.exists(node["full_path"]):
-                        not_found.append(node["full_path"])
-                    else:
-                        files_to_zip.append({
-                            "full_path": node["full_path"],
-                            "geid": node["global_entity_id"],
-                            "project_code": node["project_code"],
-                            "operator": node["operator"],
-                            "parent_folder": file["geid"],
-                        })
-            else:
-                # Handle File
-                file_node = resp.json()[0]
-                if not os.path.exists(file_node["full_path"]):
-                    not_found.append(file_node["full_path"])
-                else:
-                    files_to_zip.append({
-                        "full_path": file_node["full_path"],
-                        "geid": file_node["global_entity_id"],
-                        "project_code": file_node["project_code"],
-                        "operator": file_node["operator"],
-                        "parent_folder": None
-                    })
-        if len(not_found) > 0:
-            response.code = EAPIResponseCode.not_found
-            response.result = {
-                "not_found": not_found
-            }
-            response.error_msg = customized_error_template(
-                ECustomizedError.FILE_NOT_FOUND) % str(not_found)
-            return response.json_response()
-
-        if not files_to_zip:
-            response.code = EAPIResponseCode.bad_request
-            response.error_msg = "Folder is empty"
-            return response.json_response()
-
-        query = {"global_entity_id": file["geid"]}
-        resp = requests.post(ConfigClass.NEO4J_SERVICE +
-                             "nodes/File/query", json=query)
-        if resp.json():
-            file_node = resp.json()[0]
-            geid = file_node["global_entity_id"]
-        else:
-            query = {"global_entity_id": file["geid"]}
-            resp = requests.post(ConfigClass.NEO4J_SERVICE +
-                                 "nodes/Folder/query", json=query)
-            geid = resp.json()[0]["global_entity_id"]
-        full_path = files_to_zip[0]["full_path"]
-
-        # if multiple files, zip as one file
-        if len(files_to_zip) > 1 or is_containe_folder:
-            # asyncly zip files
-            zipped_file_path = generate_zipped_file_path(
-                request_payload.project_code)
-            full_path = zipped_file_path
-            # update status as zipping
-            job_status = EDataDownloadStatus.ZIPPING
-        else:
-            # update status as ready for download
-            job_status = EDataDownloadStatus.READY_FOR_DOWNLOADING
-        # generate jwt hash code token
-        hash_code = generate_token({
-            "geid":  geid,
-            "full_path":  full_path,
-            "issuer": "SERVICE DATA DOWNLOAD",
-            "operator": request_payload.operator,
-            "session_id": request_payload.session_id,
-            "job_id": job_id,
-            "project_code": request_payload.project_code,
-            "iat": int(time.time()),
-            "exp": int(time.time()) + (ConfigClass.DOWNLOAD_TOKEN_EXPIRE_AT * 60)
-        })
-
-        # set status for zip files
-        zip_files_geid = []
-        for file in files_to_zip:
-            zip_files_geid.append(file["full_path"])
-            parent_folder = file["parent_folder"]
-            if len(files_to_zip) > 1 and not parent_folder:
-                parent_folder = 'zip folder'
-            job_recorded = set_status(
-                request_payload.session_id,
-                job_id,
-                file["full_path"],
-                "data_download",
-                job_status.name,
-                request_payload.project_code,
-                request_payload.operator,
-                file["geid"],
-                payload={
-                    "hash_code": hash_code,
-                    "parent_folder": parent_folder
-                }
-            )
-
-        if len(files_to_zip) > 1 or is_containe_folder:
-            self.__logger.info(
-                f'Starting background job for: {geid} {files_to_zip}')
-            background_tasks.add_task(
-                zip_worker, job_id, zipped_file_path, files_to_zip.copy(), request_payload, hash_code, geid, zip_files_geid)
-
-        # set status in session store
-        job_recorded = set_status(
-            request_payload.session_id,
-            job_id,
-            full_path,
-            "data_download",
-            job_status.name,
-            request_payload.project_code,
-            request_payload.operator,
-            geid,
-            payload={
-                "hash_code": hash_code,
-                "files": zip_files_geid
-            }
-        )
-
-        response.result = job_recorded
-        response.code = EAPIResponseCode.success
-        return response.json_response()
 
     @router.get("/downloads/status", tags=[_API_TAG],
                 response_model=DownloadStatusListRespon,
@@ -381,41 +198,3 @@ class APIDataDownload:
             "message": "Success"
         }
         return __res.json_response()
-
-
-def zip_worker(job_id, zipped_file_path, files, request_payload: PreDataDownloadPOST, hash_code, geid, zip_files_geid):
-    '''
-    async zip worker
-    '''
-    try:
-        res = zip_multi_files(zipped_file_path, files.copy(),
-                              request_payload.project_code)
-        set_status(
-            request_payload.session_id,
-            job_id,
-            zipped_file_path,
-            "data_download",
-            EDataDownloadStatus.READY_FOR_DOWNLOADING.name,
-            request_payload.project_code,
-            request_payload.operator,
-            geid,
-            payload={
-                "hash_code": hash_code,
-                "files": zip_files_geid
-            }
-        )
-    except Exception as e:
-        set_status(
-            request_payload.session_id,
-            job_id,
-            zipped_file_path,
-            "data_download",
-            EDataDownloadStatus.CANCELLED.name,
-            request_payload.project_code,
-            request_payload.operator,
-            geid,
-            payload={
-                "hash_code": hash_code,
-                "error_msg": str(e)
-            }
-        )
