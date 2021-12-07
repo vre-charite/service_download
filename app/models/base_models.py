@@ -1,6 +1,7 @@
 from enum import Enum
-from pydantic import BaseModel, validator, Field, root_validator
+
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 
 class EAPIResponseCode(Enum):
@@ -21,7 +22,7 @@ class APIResponse(BaseModel):
     num_of_pages: int = 1
     result = []
 
-    def json_response(self):
+    def json_response(self) -> JSONResponse:
         data = self.dict()
         data["code"] = self.code.value
         return JSONResponse(status_code=self.code.value, content=data)

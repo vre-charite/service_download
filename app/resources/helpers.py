@@ -1,11 +1,13 @@
-import os
-import zipfile
-import time
 import json
+import os
+import time
+from typing import List
+
 import requests
+
 from .error_handler import internal_jsonrespon_handler
-from ..config import ConfigClass
 from ..commons.data_providers.redis import SrvRedisSingleton
+from ..config import ConfigClass
 
 
 def get_geid():
@@ -17,7 +19,9 @@ def get_geid():
         raise Exception('get_geid {}: {}'.format(response.status_code, url))
 
 
-def get_files_recursive(folder_geid, all_files=[]):
+def get_files_recursive(folder_geid):
+    all_files = []
+
     query = {
         "start_label": "Folder",
         "end_labels": ["File", "Folder"],
@@ -30,19 +34,57 @@ def get_files_recursive(folder_geid, all_files=[]):
             }
         }
     }
-    resp = requests.post(ConfigClass.NEO4J_SERVICE_V2 +
-                         "relations/query", json=query)
+    resp = requests.post(
+        ConfigClass.NEO4J_SERVICE_V2 + "relations/query", json=query
+    )
     for node in resp.json()["results"]:
         if "File" in node["labels"]:
             all_files.append(node)
         else:
-            get_files_recursive(node["global_entity_id"], all_files=all_files)
+            all_files += get_files_recursive(node["global_entity_id"])
     return all_files
 
+
+def get_children_nodes(start_geid:str) -> list:
+    '''
+        The function is different than above one
+        this one will return next layer folder or 
+        files under the start_geid.
+    '''
+
+    payload = {
+        "label": "own",
+        "start_label": "Folder",
+        "start_params": {"global_entity_id":start_geid},
+    }
+
+    node_query_url = ConfigClass.NEO4J_SERVICE + "relations/query"
+    response = requests.post(node_query_url, json=payload)
+    ffs = [x.get("end_node") for x in response.json()]
+
+    return ffs
+
+
+def get_resource_bygeid(geid, exclude_archived=False) -> dict:
+    '''
+        function will call the neo4j api to get the node
+        by geid. raise exception if the geid is not exist
+    '''
+    url = ConfigClass.NEO4J_SERVICE + "nodes/geid/%s"%geid
+    res = requests.get(url)
+    nodes = res.json()
+
+    if len(nodes) == 0:
+        raise Exception('Not found resource: ' + geid)
+
+    return nodes[0]
+
+
+
+
 def namespace_to_path(my_disk_namespace: str):
-    '''
-    disk namespace to path
-    '''
+    """Disk namespace to path."""
+
     return {
         "greenroom": ConfigClass.NFS_ROOT_PATH,
         "vrecore": ConfigClass.VRE_ROOT_PATH
@@ -50,9 +92,8 @@ def namespace_to_path(my_disk_namespace: str):
 
 
 def get_frontend_zone(my_disk_namespace: str):
-    '''
-    disk namespace to path
-    '''
+    """Disk namespace to path."""
+
     return {
         "greenroom": "Green Room",
         "vre": "Vre Core",
@@ -62,9 +103,8 @@ def get_frontend_zone(my_disk_namespace: str):
 
 def set_status(session_id, job_id, source, action, target_status,
                project_code, operator, geid, payload=None, progress=0):
-    '''
-    set session job status
-    '''
+    """Set session job status."""
+
     srv_redis = SrvRedisSingleton()
     my_key = "dataaction:{}:{}:{}:{}:{}:{}".format(
         session_id, job_id, action, project_code, operator, source)
@@ -89,10 +129,9 @@ def set_status(session_id, job_id, source, action, target_status,
     return record
 
 
-def get_status(session_id, job_id, project_code, action, operator=None):
-    '''
-    get session job status from datastore
-    '''
+def get_status(session_id, job_id, project_code, action, operator=None) -> List[str]:
+    """Get session job status from datastore."""
+
     srv_redis = SrvRedisSingleton()
     my_key = "dataaction:{}:{}:{}:{}".format(
         session_id, job_id, action, project_code)
@@ -104,9 +143,8 @@ def get_status(session_id, job_id, project_code, action, operator=None):
 
 
 def delete_by_session_id(session_id: str, job_id: str = "*", action: str = "*"):
-    '''
-    delete status by session id
-    '''
+    """Delete status by session id."""
+
     srv_redis = SrvRedisSingleton()
     prefix = "dataaction:" + session_id + ":" + job_id + ":" + action
     srv_redis.mdelete_by_prefix(prefix)
@@ -115,10 +153,11 @@ def delete_by_session_id(session_id: str, job_id: str = "*", action: str = "*"):
 
 def update_file_operation_logs(owner, operator, download_path, file_size, project_code,
                                generate_id, operation_type="data_download", extra=None):
-    '''
-    Endpoint
+    """Endpoint.
+
     /v1/file/actions/logs
-    '''
+    """
+
     url = ConfigClass.DATA_OPS_GR + 'file/actions/logs'
     payload = {
         "operation_type": operation_type,
@@ -151,3 +190,87 @@ def update_file_operation_logs(owner, operator, download_path, file_size, projec
         json=payload_audit_log
     )
     return internal_jsonrespon_handler(url_audit_log, res_audit_logs)
+
+
+# ########################################### File lock apis ######################################
+# def lock_resource(resource_key:str, operation:str) -> dict:
+#     # operation can be either read or write
+#     print("====== Lock resource:", resource_key)
+#     url = ConfigClass.DATA_OPS_UT_V2 + 'resource/lock'
+#     post_json = {
+#         "resource_key": resource_key,
+#         "operation": operation
+#     }
+
+#     response = requests.post(url, json=post_json)
+#     if response.status_code != 200:
+#         raise Exception("resource %s already in used"%resource_key)
+
+#     return response.json()
+
+
+# def unlock_resource(resource_key:str, operation:str) -> dict:
+#     # operation can be either read or write
+#     print("====== Unlock resource:", resource_key)
+#     url = ConfigClass.DATA_OPS_UT_V2 + 'resource/lock'
+#     post_json = {
+#         "resource_key": resource_key,
+#         "operation": operation
+#     }
+    
+#     response = requests.delete(url, json=post_json)
+#     if response.status_code != 200:
+#         raise Exception("Error when unlock resource %s"%resource_key)
+
+#     return response.json()
+
+
+# def recursive_lock(code:str, ff_geids:list, new_name:str=None) \
+#     -> (list, Exception):
+#     '''
+#     the function will recursively lock the node tree
+#     '''
+
+#     # this is for crash recovery, if something trigger the exception
+#     # we will unlock the locked node only. NOT the whole tree. The example
+#     # case will be copy the same node, if we unlock the whole tree in exception
+#     # then it will affect the processing one.
+#     locked_node, err = [], None
+
+#     def recur_walker(currenct_nodes, new_name=None):
+#         '''
+#         recursively trace down the node tree and run the lock function
+#         '''
+
+#         for ff_object in currenct_nodes:
+#             # we will skip the deleted nodes
+#             if ff_object.get("archived", False):
+#                 continue
+            
+#             # conner case here, we DONT lock the name folder
+#             # for the copy we will lock the both source and target
+#             if ff_object.get("name") != ff_object.get("uploader"):
+#                 bucket_prefix = "gr-" if "Greenroom" in ff_object.get("labels") else "core-"
+#                 source_key = "{}/{}".format(bucket_prefix+code, ff_object.get("display_path"))
+#                 lock_resource(source_key, "read")
+#                 locked_node.append((source_key, "read"))
+
+#             # open the next recursive loop if it is folder
+#             if 'Folder' in ff_object.get("labels"):
+#                 children_nodes = get_children_nodes(ff_object.get("global_entity_id", None))
+#                 recur_walker(children_nodes)
+
+#         return
+
+#     # start here
+#     try:
+#         # slightly different here, since the download only gives
+#         # the folder/file geid. then I have to get node by geid so
+#         # that we can get the path/
+#         nodes = [get_resource_bygeid(geid.get("geid")) for geid in ff_geids]
+        
+#         # recur_walker(nodes, new_name)
+#     except Exception as e:
+#         err = e
+
+#     return locked_node, err

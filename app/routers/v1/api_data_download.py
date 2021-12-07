@@ -1,19 +1,26 @@
 import os
-import time
 
-from fastapi import APIRouter, Header
-from fastapi_utils import cbv
+from fastapi import APIRouter
+from fastapi import Header
 from fastapi.responses import FileResponse
-from ...models.models_data_download import EDataDownloadStatus, PreDataDownloadPOST, \
-    PreDataDowanloadResponse, GetDataDownloadStatusRespon, DownloadStatusListRespon
-from ...models.base_models import APIResponse, EAPIResponseCode
+from fastapi.responses import JSONResponse
+from fastapi_utils import cbv
+
 from ...commons.logger_services.logger_factory_service import SrvLoggerFactory
-from ...resources.download_token_manager import verify_download_token
-from ...resources.error_handler import catch_internal, ECustomizedError, customized_error_template
-from ...resources.helpers import set_status, get_status, update_file_operation_logs, delete_by_session_id, get_files_recursive
 from ...config import ConfigClass
-import requests
-import json
+from ...models.base_models import APIResponse
+from ...models.base_models import EAPIResponseCode
+from ...models.models_data_download import DownloadStatusListRespon
+from ...models.models_data_download import EDataDownloadStatus
+from ...models.models_data_download import GetDataDownloadStatusRespon
+from ...resources.download_token_manager import verify_download_token
+from ...resources.error_handler import ECustomizedError
+from ...resources.error_handler import catch_internal
+from ...resources.error_handler import customized_error_template
+from ...resources.helpers import delete_by_session_id
+from ...resources.helpers import get_status
+from ...resources.helpers import set_status
+from ...resources.helpers import update_file_operation_logs
 
 router = APIRouter()
 
@@ -23,9 +30,7 @@ _API_NAMESPACE = "api_data_download"
 
 @cbv.cbv(router)
 class APIDataDownload:
-    '''
-    API Data Download Class
-    '''
+    """API Data Download Class."""
 
     def __init__(self):
         self.__logger = SrvLoggerFactory('api_data_download').get_logger()
@@ -34,36 +39,36 @@ class APIDataDownload:
                 response_model=DownloadStatusListRespon,
                 summary="Fetch download status list by session_id")
     @catch_internal(_API_NAMESPACE)
-    async def data_download_status_list(self, project_code: str, operator: str,
-                                        job_id: str = '*',
-                                        session_id: str = Header(None)):
-        '''
-        Fetch download status list
-        '''
+    async def data_download_status_list(
+            self,
+            project_code: str,
+            operator: str,
+            job_id: str = '*',
+            session_id: str = Header(None),
+    ) -> JSONResponse:
+        """Fetch download status list."""
+
         response = APIResponse()
-        # verify hash code
-        job_fatched = get_status(
-            session_id, job_id, project_code, "data_download", operator)
-        if len(job_fatched) >= 0:
+        jobs_fetched = get_status(
+            session_id, job_id, project_code, "data_download", operator
+        )
+        if len(jobs_fetched) > 0:
             response.code = EAPIResponseCode.success
-            response.result = job_fatched
-            response.total = len(job_fatched)
-            return response.json_response()
         else:
             response.code = EAPIResponseCode.not_found
-            response.result = job_fatched
-            response.total = len(job_fatched)
             response.error_msg = 'No record.'
-            return response.json_response()
+        response.result = jobs_fetched
+        response.total = len(jobs_fetched)
+
+        return response.json_response()
 
     @router.get("/download/status/{hash_code}", tags=[_API_TAG],
                 response_model=GetDataDownloadStatusRespon,
                 summary="Check download status")
     @catch_internal(_API_NAMESPACE)
     async def data_download_status(self, hash_code):
-        '''
-        Check download status
-        '''
+        """Check download status."""
+
         response = APIResponse()
         # verify hash code
         res_verify_token = verify_download_token(hash_code)
@@ -95,7 +100,7 @@ class APIDataDownload:
                 job_fatched = job_fatched[0]
         self.__logger.info(
             'job_fatched: ' + str(job_fatched))
-            
+
         if found:
             response.code = EAPIResponseCode.success
             response.result = job_fatched
@@ -112,12 +117,10 @@ class APIDataDownload:
                 summary="Download the data, asynchronously streams a file as the response.")
     @catch_internal(_API_NAMESPACE)
     async def data_download(self, hash_code: str):
-        '''
-        If succeed, asynchronously streams a FileResponse
-        '''
+        """If succeed, asynchronously streams a FileResponse."""
+
         response = APIResponse()
-        self.__logger.info(
-            'Check downloading request: %s' % hash_code)
+        self.__logger.info(f'Check downloading request: {hash_code}')
 
         # Verify and decode token
         res_verify_token = verify_download_token(hash_code)
@@ -129,7 +132,7 @@ class APIDataDownload:
         else:
             res_verify_token = res_verify_token[1]
 
-        # get the temperary file path we saved in token
+        # get the temporary file path we saved in token
         # and use it to fetch the actual file
         full_path = res_verify_token["full_path"]
 
@@ -142,8 +145,8 @@ class APIDataDownload:
                 ECustomizedError.FILE_NOT_FOUND) % full_path
             return response.json_response()
 
-        # this operation is needed since the file will be 
-        # download to nfs from minio then transfert to user
+        # this operation is needed since the file will be
+        # download to nfs from minio then transfer to user
         filename = os.path.basename(full_path)
 
         # Add Download Log
@@ -159,6 +162,9 @@ class APIDataDownload:
         download_job = get_status(res_verify_token["session_id"], res_verify_token["job_id"],
                                   res_verify_token["project_code"], "data_download", res_verify_token["operator"])
         self.__logger.info(f'Length of download job: {len(download_job)}')
+
+        status_update_res = {}
+
         for record in download_job:
             self.__logger.info(f'download job: {record}')
             self.__logger.info(f'download job type: {type(record)}')
@@ -183,9 +189,8 @@ class APIDataDownload:
                    summary="Delete the download session status.")
     @catch_internal(_API_NAMESPACE)
     async def clear_status(self, session_id: str = Header(None)):
-        '''
-        delete status by session id
-        '''
+        """Delete status by session id."""
+
         __res = APIResponse()
         if not session_id:
             __res.code = EAPIResponseCode.bad_request

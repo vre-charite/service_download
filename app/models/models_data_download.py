@@ -1,6 +1,8 @@
 from enum import Enum
 from pydantic import BaseModel, Field
+from pydantic.types import constr
 from .base_models import APIResponse
+
 
 ### PreDataDowanload ###
 
@@ -20,7 +22,7 @@ class DatasetPrePOST(BaseModel):
     '''
     Pre download dataset payload model
     '''
-    dataset_geid: str
+    dataset_geid: constr(min_length=2)
     operator: str
     session_id: str
 
