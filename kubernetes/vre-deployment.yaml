@@ -25,7 +25,7 @@ spec:
     spec:
       containers:
         - name: download
-          image: 10.32.42.225:5000/download:<VERSION>
+          image: s-hdp-vre-v007.charite.de/download:<VERSION>
           ports:
             - containerPort: 5077
           env:
