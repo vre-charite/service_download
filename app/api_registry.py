@@ -1,11 +1,33 @@
+# Copyright 2022 Indoc Research
+# 
+# Licensed under the EUPL, Version 1.2 or – as soon they
+# will be approved by the European Commission - subsequent
+# versions of the EUPL (the "Licence");
+# You may not use this work except in compliance with the
+# Licence.
+# You may obtain a copy of the Licence at:
+# 
+# https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12
+# 
+# Unless required by applicable law or agreed to in
+# writing, software distributed under the Licence is
+# distributed on an "AS IS" basis,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+# express or implied.
+# See the Licence for the specific language governing
+# permissions and limitations under the Licence.
+# 
+
 from fastapi import FastAPI
-from .routers import api_root
-from .routers.v1 import api_data_download
-from .routers.v2 import api_data_download as api_data_download_v2
-from .routers.v2 import api_object_get as api_object_get
+
+from app.routers import api_root
+from app.routers.v1 import api_data_download
+from app.routers.v2 import api_data_download as api_data_download_v2
+from app.routers.v2 import api_object_get as api_object_get
+
 
 def api_registry(app: FastAPI):
     app.include_router(api_root.router)
-    app.include_router(api_data_download.router, prefix="/v1")
-    app.include_router(api_data_download_v2.router, prefix="/v2")
-    app.include_router(api_object_get.router, prefix="/v2")
+    app.include_router(api_data_download.router, prefix='/v1')
+    app.include_router(api_data_download_v2.router, prefix='/v2')
+    app.include_router(api_object_get.router, prefix='/v2')

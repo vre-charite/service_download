@@ -1,44 +1,64 @@
-import os
-import requests
-from requests.models import HTTPError
-from pydantic import BaseSettings, Extra
-from typing import Dict, Set, List, Any
-from functools import lru_cache
+# Copyright 2022 Indoc Research
+# 
+# Licensed under the EUPL, Version 1.2 or – as soon they
+# will be approved by the European Commission - subsequent
+# versions of the EUPL (the "Licence");
+# You may not use this work except in compliance with the
+# Licence.
+# You may obtain a copy of the Licence at:
+# 
+# https://joinup.ec.europa.eu/collection/eupl/eupl-text-eupl-12
+# 
+# Unless required by applicable law or agreed to in
+# writing, software distributed under the Licence is
+# distributed on an "AS IS" basis,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either
+# express or implied.
+# See the Licence for the specific language governing
+# permissions and limitations under the Licence.
+# 
 
-SRV_NAMESPACE = os.environ.get("APP_NAME", "service_download")
-CONFIG_CENTER_ENABLED = os.environ.get("CONFIG_CENTER_ENABLED", "false")
-CONFIG_CENTER_BASE_URL = os.environ.get("CONFIG_CENTER_BASE_URL", "NOT_SET")
+from typing import Any
+from typing import Dict
+
+from common import VaultClient
+from pydantic import BaseSettings
+from pydantic import Extra
+from starlette.config import Config
+
+config = Config('.env')
+
+SRV_NAMESPACE = config('APP_NAME', cast=str, default='service_download')
+CONFIG_CENTER_ENABLED = config('CONFIG_CENTER_ENABLED', cast=str, default='false')
+CONFIG_CENTER_BASE_URL = config('CONFIG_CENTER_BASE_URL', cast=str, default='NOT_SET')
+
 
 def load_vault_settings(settings: BaseSettings) -> Dict[str, Any]:
-    if CONFIG_CENTER_ENABLED == "false":
+    if CONFIG_CENTER_ENABLED == 'false':
         return {}
     else:
-        return vault_factory(CONFIG_CENTER_BASE_URL)
-
-def vault_factory(config_center) -> dict:
-    url = f"{config_center}/v1/utility/config/{SRV_NAMESPACE}"
-    config_center_respon = requests.get(url)
-    if config_center_respon.status_code != 200:
-        raise HTTPError(config_center_respon.text)
-    return config_center_respon.json()['result']
+        vc = VaultClient(config('VAULT_URL'), config('VAULT_CRT'), config('VAULT_TOKEN'))
+        return vc.get_from_vault(SRV_NAMESPACE)
 
 
 class Settings(BaseSettings):
+    """Store service configuration settings."""
+
+    APP_NAME: str = 'service_download'
+    VERSION: str = '0.1.0'
     port: int = 5077
-    host: str = "127.0.0.1"
-    env: str = "test"
-    namespace: str = ""
-    
+    host: str = '127.0.0.1'
+    env: str = 'test'
+    namespace: str = ''
+
     # disk mounts
-    NFS_ROOT_PATH: str = "./"
-    VRE_ROOT_PATH: str = "/vre-data"
-    ROOT_PATH: str = {
-        "vre": "/vre-data"
-    }.get(os.environ.get('namespace'), "/data/vre-storage")
+    ROOT_PATH: str
+
+    CORE_ZONE_LABEL: str
+    GREEN_ZONE_LABEL: str
 
     # services
     NEO4J_SERVICE: str
-    DATA_OPS_GR: str
     PROVENANCE_SERVICE: str
     QUEUE_SERVICE: str
     UTILITY_SERVICE: str
@@ -51,85 +71,60 @@ class Settings(BaseSettings):
     MINIO_HTTPS: str
     KEYCLOAK_URL: str
     MINIO_TEST_PASS: str
-    MINIO_ACCESS_KEY: str = "indoc-minio"
-    MINIO_SECRET_KEY: str = "Trillian42!"
+    MINIO_ACCESS_KEY: str
+    MINIO_SECRET_KEY: str
     KEYCLOAK_MINIO_SECRET: str
 
-    KEYCLOAK_VRE_SECRET: str
     # download secret
-    DOWNLOAD_KEY: str = "indoc101"
+    DOWNLOAD_KEY: str = 'indoc101'
     DOWNLOAD_TOKEN_EXPIRE_AT: int = 86400
     # Redis Service
     REDIS_HOST: str
     REDIS_PORT: str
     REDIS_DB: str
     REDIS_PASSWORD: str
-    
+
+    # Postgres
+    RDS_HOST: str
+    RDS_PORT: str
+    RDS_USER: str
+    RDS_PWD: str
+    RDS_DBNAME: str
+    RDS_SCHEMA_DEFAULT: str
+
+    OPEN_TELEMETRY_ENABLED: bool = False
+    OPEN_TELEMETRY_HOST: str = '127.0.0.1'
+    OPEN_TELEMETRY_PORT: int = 6831
+
     class Config:
         env_file = '.env'
         env_file_encoding = 'utf-8'
         extra = Extra.allow
 
         @classmethod
-        def customise_sources(
-            cls,
-            init_settings,
-            env_settings,
-            file_secret_settings,
-        ):
-            return (
-                load_vault_settings,
-                env_settings,
-                init_settings,
-                file_secret_settings,
-            )
-    
+        def customise_sources(cls, init_settings, env_settings, file_secret_settings):
+            return env_settings, load_vault_settings, init_settings, file_secret_settings
 
-@lru_cache(1)
-def get_settings():
-    settings =  Settings()
-    return settings
+    def __init__(self) -> None:
+        super().__init__()
 
-class ConfigClass(object):
-    settings = get_settings()
+        # services
+        self.NEO4J_SERVICE_V2 = self.NEO4J_SERVICE + '/v2/neo4j/'
+        self.NEO4J_SERVICE += '/v1/neo4j/'
+        self.PROVENANCE_SERVICE += '/v1/'
+        self.QUEUE_SERVICE += '/v1/'
+        # self.COMMON_SERVICE += '/v1/'
+        self.DATA_OPS_UT_V2 = self.DATA_OPS_UTIL + '/v2/'
+        self.DATA_OPS_UTIL += '/v1/'
+        self.DATASET_SERVICE += '/v1/'
 
-    version = "0.1.0"
-    env = settings.env
-    disk_namespace = settings.namespace
-    
-    # disk mounts
-    NFS_ROOT_PATH = settings.NFS_ROOT_PATH
-    VRE_ROOT_PATH = settings.VRE_ROOT_PATH
-    ROOT_PATH = settings.ROOT_PATH
+        # minio
+        self.MINIO_TMP_PATH = self.ROOT_PATH + '/tmp/'
+        self.MINIO_HTTPS = self.MINIO_HTTPS == 'TRUE'  # the vault is storing the string
 
-    # services
-    NEO4J_SERVICE = settings.NEO4J_SERVICE + "/v1/neo4j/"
-    NEO4J_SERVICE_V2 = settings.NEO4J_SERVICE + "/v2/neo4j/"
-    DATA_OPS_GR = settings.DATA_OPS_GR + "/v1/"
-    PROVENANCE_SERVICE = settings.PROVENANCE_SERVICE + "/v1/"
-    QUEUE_SERVICE = settings.QUEUE_SERVICE + "/v1/"
-    COMMON_SERVICE = settings.UTILITY_SERVICE + "/v1/"
-    DATA_OPS_UTIL = settings.DATA_OPS_UTIL + "/v1/"
-    DATA_OPS_UT_V2 = settings.DATA_OPS_UTIL + "/v2/"
-    DATASET_SERVICE = settings.DATASET_SERVICE + "/v1/"
+        # Redis Service
+        self.REDIS_PORT = int(self.REDIS_PORT)
+        self.REDIS_DB = int(self.REDIS_DB)
 
-    # minio
-    MINIO_OPENID_CLIENT = settings.MINIO_OPENID_CLIENT
-    MINIO_ENDPOINT = settings.MINIO_ENDPOINT
-    MINIO_HTTPS = settings.MINIO_HTTPS == True
-    KEYCLOAK_URL = settings.KEYCLOAK_URL
-    MINIO_TEST_PASS = settings.MINIO_TEST_PASS
-    MINIO_ACCESS_KEY = settings.MINIO_ACCESS_KEY
-    MINIO_SECRET_KEY = settings.MINIO_SECRET_KEY
-    MINIO_TMP_PATH = ROOT_PATH + '/tmp/'
-    KEYCLOAK_MINIO_SECRET = settings.KEYCLOAK_MINIO_SECRET
 
-    KEYCLOAK_VRE_SECRET = settings.KEYCLOAK_VRE_SECRET
-    # download secret
-    DOWNLOAD_KEY = settings.DOWNLOAD_KEY
-    DOWNLOAD_TOKEN_EXPIRE_AT = settings.DOWNLOAD_TOKEN_EXPIRE_AT
-    # Redis Service
-    REDIS_HOST = settings.REDIS_HOST
-    REDIS_PORT = int(settings.REDIS_PORT)
-    REDIS_DB = int(settings.REDIS_DB)
-    REDIS_PASSWORD = settings.REDIS_PASSWORD
+ConfigClass = Settings()
